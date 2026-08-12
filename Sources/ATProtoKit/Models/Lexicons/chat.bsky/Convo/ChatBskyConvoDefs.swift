@@ -56,10 +56,15 @@ extension ChatBskyLexicon.Conversation {
         /// An embed for the message. Optional.
         public let embed: EmbedUnion?
 
-        public init(text: String, facets: [AppBskyLexicon.RichText.Facet]? = nil, embed: EmbedUnion? = nil) {
+        /// A reply reference for the message. Optional.
+        public let replyTo: ReplyReferenceDefinition?
+
+        public init(text: String, facets: [AppBskyLexicon.RichText.Facet]? = nil, embed: EmbedUnion? = nil,
+                    replyTo: ReplyReferenceDefinition? = nil) {
             self.text = text
             self.facets = facets
             self.embed = embed
+            self.replyTo = replyTo
         }
 
         public func encode(to encoder: any Encoder) throws {
@@ -67,12 +72,14 @@ extension ChatBskyLexicon.Conversation {
             try container.truncatedEncode(self.text, forKey: .text, upToCharacterLength: 1_000)
             try container.encodeIfPresent(self.facets, forKey: .facets)
             try container.encodeIfPresent(self.embed, forKey: .embed)
+            try container.encodeIfPresent(self.replyTo, forKey: .replyTo)
         }
 
         enum CodingKeys: CodingKey {
             case text
             case facets
             case embed
+            case replyTo
         }
 
         // Unions
@@ -117,6 +124,21 @@ extension ChatBskyLexicon.Conversation {
         }
     }
 
+    /// A definition model for a reply reference.
+    ///
+    /// - SeeAlso: This is based on the [`chat.bsky.convo.defs`][github] lexicon.
+    ///
+    /// [github]: https://github.com/bluesky-social/atproto/blob/main/lexicons/chat/bsky/convo/defs.json
+    public struct ReplyReferenceDefinition: Sendable, Codable {
+
+        /// The ID of the message being replied to.
+        public let messageID: String
+
+        enum CodingKeys: String, CodingKey {
+            case messageID = "messageId"
+        }
+    }
+
     /// A definition model for a message view.
     ///
     /// - SeeAlso: This is based on the [`chat.bsky.convo.defs`][github] lexicon.
@@ -147,6 +169,9 @@ extension ChatBskyLexicon.Conversation {
         /// An array of reactions. Optional.
         public let reactions: [ChatBskyLexicon.Conversation.ReactionViewDefinition]?
 
+        /// A reply reference for the message. Optional.
+        public let replyTo: ReplyToUnion?
+
         /// The sender of the message.
         public let sender: MessageViewSenderDefinition
 
@@ -154,13 +179,15 @@ extension ChatBskyLexicon.Conversation {
         public let sentAt: Date
 
         public init(messageID: String, revision: String, text: String, facets: [AppBskyLexicon.RichText.Facet]?, embed: EmbedUnion?,
-                    reactions: [ChatBskyLexicon.Conversation.ReactionViewDefinition]?, sender: MessageViewSenderDefinition, sentAt: Date) {
+                    reactions: [ChatBskyLexicon.Conversation.ReactionViewDefinition]?, replyTo: ReplyToUnion? = nil,
+                    sender: MessageViewSenderDefinition, sentAt: Date) {
             self.messageID = messageID
             self.revision = revision
             self.text = text
             self.facets = facets
             self.embed = embed
             self.reactions = reactions
+            self.replyTo = replyTo
             self.sender = sender
             self.sentAt = sentAt
         }
@@ -174,6 +201,7 @@ extension ChatBskyLexicon.Conversation {
             self.facets = try container.decodeIfPresent([AppBskyLexicon.RichText.Facet].self, forKey: .facets)
             self.embed = try container.decodeIfPresent(EmbedUnion.self, forKey: .embed)
             self.reactions = try container.decodeIfPresent([ChatBskyLexicon.Conversation.ReactionViewDefinition].self, forKey: .reactions)
+            self.replyTo = try container.decodeIfPresent(ReplyToUnion.self, forKey: .replyTo)
             self.sender = try container.decode(MessageViewSenderDefinition.self, forKey: .sender)
             self.sentAt = try container.decodeDate(forKey: .sentAt)
         }
@@ -187,6 +215,7 @@ extension ChatBskyLexicon.Conversation {
             try container.encodeIfPresent(self.facets, forKey: .facets)
             try container.encodeIfPresent(self.embed, forKey: .embed)
             try container.encodeIfPresent(self.reactions, forKey: .reactions)
+            try container.encodeIfPresent(self.replyTo, forKey: .replyTo)
             try container.encode(self.sender, forKey: .sender)
             try container.encodeDate(self.sentAt, forKey: .sentAt)
         }
@@ -198,6 +227,7 @@ extension ChatBskyLexicon.Conversation {
             case facets
             case embed
             case reactions
+            case replyTo
             case sender
             case sentAt
         }
@@ -232,6 +262,60 @@ extension ChatBskyLexicon.Conversation {
 
                 switch self {
                     case .recordView(let value):
+                        try container.encode(value)
+                    default:
+                        break
+                }
+            }
+
+            enum CodingKeys: String, CodingKey {
+                case type = "$type"
+            }
+        }
+
+        /// A union for the message being replied to.
+        public indirect enum ReplyToUnion: ATUnionProtocol {
+
+            /// A message view.
+            case messageView(ChatBskyLexicon.Conversation.MessageViewDefinition)
+
+            /// A deleted message view.
+            case deletedMessageView(ChatBskyLexicon.Conversation.DeletedMessageViewDefinition)
+
+            /// A message sent before the user joined a group conversation.
+            case messageBeforeUserJoinedGroupView(ChatBskyLexicon.Conversation.MessageBeforeUserJoinedGroupViewDefinition)
+
+            /// An unknown case.
+            case unknown(String, [String: CodableValue])
+
+            public init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let type = try container.decodeIfPresent(String.self, forKey: .type)
+
+                switch type {
+                    case "chat.bsky.convo.defs#messageView":
+                        self = .messageView(try ChatBskyLexicon.Conversation.MessageViewDefinition(from: decoder))
+                    case "chat.bsky.convo.defs#deletedMessageView":
+                        self = .deletedMessageView(try ChatBskyLexicon.Conversation.DeletedMessageViewDefinition(from: decoder))
+                    case "chat.bsky.convo.defs#messageBeforeUserJoinedGroupView":
+                        self = .messageBeforeUserJoinedGroupView(try ChatBskyLexicon.Conversation.MessageBeforeUserJoinedGroupViewDefinition(from: decoder))
+                    default:
+                        let singleValueDecodingContainer = try decoder.singleValueContainer()
+                        let dictionary = try Self.decodeDictionary(from: singleValueDecodingContainer, decoder: decoder)
+
+                        self = .unknown(type ?? "unknown", dictionary)
+                }
+            }
+
+            public func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+
+                switch self {
+                    case .messageView(let value):
+                        try container.encode(value)
+                    case .deletedMessageView(let value):
+                        try container.encode(value)
+                    case .messageBeforeUserJoinedGroupView(let value):
                         try container.encode(value)
                     default:
                         break
@@ -295,6 +379,16 @@ extension ChatBskyLexicon.Conversation {
             case sentAt
         }
     }
+
+    /// A definition model for a message sent before a user joined a group conversation.
+    ///
+    /// Placeholder embedded in place of a reply's parent message when that parent was sent before
+    /// the viewer joined the group conversation. No message data is carried.
+    ///
+    /// - SeeAlso: This is based on the [`chat.bsky.convo.defs`][github] lexicon.
+    ///
+    /// [github]: https://github.com/bluesky-social/atproto/blob/main/lexicons/chat/bsky/convo/defs.json
+    public struct MessageBeforeUserJoinedGroupViewDefinition: Sendable, Codable {}
 
     /// A definition model for the message view's sender.
     ///
@@ -412,6 +506,9 @@ extension ChatBskyLexicon.Conversation {
         /// The number of messages that haven't been read.
         public let unreadCount: Int
 
+        /// The kind of conversation. Optional.
+        public let kind: KindUnion?
+
         enum CodingKeys: String, CodingKey {
             case conversationID = "id"
             case revision = "rev"
@@ -421,6 +518,7 @@ extension ChatBskyLexicon.Conversation {
             case isMuted = "muted"
             case status
             case unreadCount
+            case kind
         }
 
         // Enums
@@ -520,6 +618,130 @@ extension ChatBskyLexicon.Conversation {
             enum CodingKeys: String, CodingKey {
                 case type = "$type"
             }
+        }
+
+        /// A union for the kind of conversation.
+        public enum KindUnion: ATUnionProtocol {
+
+            /// A direct (1-on-1) conversation.
+            case directConvo(ChatBskyLexicon.Conversation.DirectConversationDefinition)
+
+            /// A group conversation.
+            case groupConvo(ChatBskyLexicon.Conversation.GroupConvoDefinition)
+
+            /// An unknown case.
+            case unknown(String, [String: CodableValue])
+
+            public init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let type = try container.decodeIfPresent(String.self, forKey: .type)
+
+                switch type {
+                    case "chat.bsky.convo.defs#directConvo":
+                        self = .directConvo(try ChatBskyLexicon.Conversation.DirectConversationDefinition(from: decoder))
+                    case "chat.bsky.convo.defs#groupConvo":
+                        self = .groupConvo(try ChatBskyLexicon.Conversation.GroupConvoDefinition(from: decoder))
+                    default:
+                        let singleValueDecodingContainer = try decoder.singleValueContainer()
+                        let dictionary = try Self.decodeDictionary(from: singleValueDecodingContainer, decoder: decoder)
+
+                        self = .unknown(type ?? "unknown", dictionary)
+                }
+            }
+
+            public func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+
+                switch self {
+                    case .directConvo(let value):
+                        try container.encode(value)
+                    case .groupConvo(let value):
+                        try container.encode(value)
+                    default:
+                        break
+                }
+            }
+
+            enum CodingKeys: String, CodingKey {
+                case type = "$type"
+            }
+        }
+    }
+
+    /// A definition model for a direct (1-on-1) conversation.
+    ///
+    /// - SeeAlso: This is based on the [`chat.bsky.convo.defs`][github] lexicon.
+    ///
+    /// [github]: https://github.com/bluesky-social/atproto/blob/main/lexicons/chat/bsky/convo/defs.json
+    public struct DirectConversationDefinition: Sendable, Codable {}
+
+    /// A definition model for a group conversation.
+    ///
+    /// - SeeAlso: This is based on the [`chat.bsky.convo.defs`][github] lexicon.
+    ///
+    /// [github]: https://github.com/bluesky-social/atproto/blob/main/lexicons/chat/bsky/convo/defs.json
+    public struct GroupConvoDefinition: Sendable, Codable {
+
+        /// The date and time the group conversation was created.
+        public let createdAt: Date
+
+        /// The lock status of the conversation.
+        public let lockStatus: String
+
+        /// Whether the lock status is forced by a moderation override (account inactivation or
+        /// convo takedown) rather than the owner's own setting.
+        public let lockStatusModerationOverride: Bool
+
+        /// The total number of members in the group conversation.
+        public let memberCount: Int
+
+        /// The maximum number of members allowed in the group conversation.
+        public let memberLimit: Int
+
+        /// The display name of the group conversation.
+        public let name: String
+
+        /// The total number of pending join requests. Only present for the owner. Capped at 21. Optional.
+        public let joinRequestCount: Int?
+
+        /// The number of unread join requests. Only present for the owner. Optional.
+        public let unreadJoinRequestCount: Int?
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            self.createdAt = try container.decodeDate(forKey: .createdAt)
+            self.lockStatus = try container.decode(String.self, forKey: .lockStatus)
+            self.lockStatusModerationOverride = try container.decode(Bool.self, forKey: .lockStatusModerationOverride)
+            self.memberCount = try container.decode(Int.self, forKey: .memberCount)
+            self.memberLimit = try container.decode(Int.self, forKey: .memberLimit)
+            self.name = try container.decode(String.self, forKey: .name)
+            self.joinRequestCount = try container.decodeIfPresent(Int.self, forKey: .joinRequestCount)
+            self.unreadJoinRequestCount = try container.decodeIfPresent(Int.self, forKey: .unreadJoinRequestCount)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+
+            try container.encodeDate(self.createdAt, forKey: .createdAt)
+            try container.encode(self.lockStatus, forKey: .lockStatus)
+            try container.encode(self.lockStatusModerationOverride, forKey: .lockStatusModerationOverride)
+            try container.encode(self.memberCount, forKey: .memberCount)
+            try container.encode(self.memberLimit, forKey: .memberLimit)
+            try container.encode(self.name, forKey: .name)
+            try container.encodeIfPresent(self.joinRequestCount, forKey: .joinRequestCount)
+            try container.encodeIfPresent(self.unreadJoinRequestCount, forKey: .unreadJoinRequestCount)
+        }
+
+        enum CodingKeys: CodingKey {
+            case createdAt
+            case lockStatus
+            case lockStatusModerationOverride
+            case memberCount
+            case memberLimit
+            case name
+            case joinRequestCount
+            case unreadJoinRequestCount
         }
     }
 
